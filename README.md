@@ -7,8 +7,8 @@
 **Screenshot and annotate, on Wayland**
 
 [![license](https://img.shields.io/badge/License-MIT-e0563b?style=flat-square)](LICENSE)
-&nbsp;![compositors](https://img.shields.io/badge/wlroots%20%C2%B7%20Niri%20%C2%B7%20KDE%20%C2%B7%20COSMIC-e0563b?style=flat-square)
-&nbsp;![built on quickshell](https://img.shields.io/badge/Built%20on-Quickshell-3a4456?style=flat-square)
+![compositors](https://img.shields.io/badge/wlroots%20%C2%B7%20Niri%20%C2%B7%20KDE%20%C2%B7%20COSMIC-e0563b?style=flat-square)
+![built on quickshell](https://img.shields.io/badge/Built%20on-Quickshell-3a4456?style=flat-square)
 
 </div>
 
@@ -64,7 +64,7 @@ Quickshell is in the official repos on Arch (extra), Fedora 44+, Void, and Debia
 
 ## Compositors
 
-|  | Capture | Region + monitor | Window-click |
+| | Capture | Region + monitor | Window-click |
 | --- | --- | --- | --- |
 | Hyprland | yes | yes | yes |
 | Sway | yes | yes | yes |
@@ -120,8 +120,9 @@ Toolbar icon centring needs Qt 6.10 or newer. On older Qt the icons box-centre, 
 
 </details>
 
----
+______________________________________________________________________
 
 <div align="center">
 MIT &nbsp;·&nbsp; built with <a href="https://quickshell.outfoxxed.me/">Quickshell</a> &nbsp;·&nbsp; from <a href="https://github.com/Gakuseei/Ricelin">Ricelin</a>
 </div>
+
