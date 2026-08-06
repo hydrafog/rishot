@@ -464,7 +464,10 @@ ShellRoot {
     }
     /** Save target: the folder picked in settings, or shotsDir when none is set. */
     readonly property string effectiveSaveDir: Config.saveDir !== "" ? Config.saveDir : shotsDir
-    readonly property string defaultPath: effectiveSaveDir + "/" + timestampName()
+    /** Fresh save target each call; keeping this a function avoids caching the timestamp. */
+    function defaultPath() {
+        return effectiveSaveDir + "/" + timestampName();
+    }
 
     function anchorOverlay() {
         if (!globalSel) return null;
@@ -576,7 +579,7 @@ ShellRoot {
      */
     function doCopy() {
         var keep = Config.copyToDisk;
-        var target = keep ? defaultPath : (root.tmpDir + "/rishot-copy.png");
+        var target = keep ? defaultPath() : (root.tmpDir + "/rishot-copy.png");
         grabTo(target, function (ok) {
             if (ok) copyProc.run(target, keep);
             else root.finish("Capture failed", "", true, "");
@@ -584,7 +587,7 @@ ShellRoot {
     }
 
     function doSave() {
-        var auto = root.defaultPath;
+        var auto = root.defaultPath();
         grabTo(auto, function (ok) {
             if (!ok) { root.finish("Capture failed", "", true, ""); return; }
             root.savedAuto = auto;
