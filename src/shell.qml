@@ -136,6 +136,8 @@ ShellRoot {
     property var hoverWindow: null
     property var windowRects: []
     property bool dialogMode: false
+    /** Set once a copy or upload has its pixels; unmaps every overlay for good. */
+    property bool leaving: false
     property string savedAuto: ""
 
     function textSize() { return activeWidth * 5 + 8; }
@@ -490,17 +492,22 @@ ShellRoot {
         return hit > 1;
     }
 
-    function grabTo(path, after) {
+    /**
+     * leaveEarly unmaps the overlays the moment the pixels are grabbed, for the
+     * actions that never return to the editor (copy, upload). Save keeps them
+     * mapped because a cancelled save dialog brings the editor back.
+     */
+    function grabTo(path, after, leaveEarly) {
         var w = anchorOverlay();
         if (!w) { if (after) after(false); return; }
-        if (spansMonitors()) { seamStitch(path, after); return; }
+        if (spansMonitors()) { seamStitch(path, after, leaveEarly); return; }
         w.grabExport(path, function (ok) {
             console.log("rishot: grab " + path + " => " + ok);
             if (after) after(ok);
-        });
+        }, leaveEarly ? function () { root.leaving = true; } : null);
     }
 
-    function seamStitch(path, after) {
+    function seamStitch(path, after, leaveEarly) {
         var slices = [];
         for (var i = 0; i < overlays.length; i++) {
             var s = overlays[i].modelData;
@@ -514,14 +521,18 @@ ShellRoot {
             });
         }
         if (slices.length === 0) { if (after) after(false); return; }
-        if (slices.length === 1) { slices[0].win.grabExport(path, after); return; }
+        var leave = leaveEarly ? function () { root.leaving = true; } : null;
+        if (slices.length === 1) { slices[0].win.grabExport(path, after, leave); return; }
         var done = 0, okAll = true;
         for (var j = 0; j < slices.length; j++) {
             (function (sl) {
                 sl.win.grabExport(sl.tmp, function (ok) {
                     if (!ok) okAll = false;
                     done += 1;
-                    if (done === slices.length) compositeSlices(slices, path, okAll, after);
+                    if (done === slices.length) {
+                        if (leave) leave();
+                        compositeSlices(slices, path, okAll, after);
+                    }
                 });
             })(slices[j]);
         }
@@ -578,12 +589,13 @@ ShellRoot {
      * normal shots dir and keeps it, same as save.
      */
     function doCopy() {
+        if (phase !== "editing" || !globalSel) return;
         var keep = Config.copyToDisk;
-        var target = keep ? defaultPath() : (root.tmpDir + "/rishot-copy.png");
+        var target = keep ? defaultPath() : (root.tmpDir + "/rishot-copy-" + Date.now() + ".png");
         grabTo(target, function (ok) {
             if (ok) copyProc.run(target, keep);
             else root.finish("Capture failed", "", true, "");
-        });
+        }, true);
     }
 
     function doSave() {
@@ -611,7 +623,7 @@ ShellRoot {
         grabTo(tmp, function (ok) {
             if (ok) uploadProc.run(tmp);
             else root.finish("Capture failed", "", true, "");
-        });
+        }, true);
     }
 
     Process {
@@ -673,29 +685,36 @@ ShellRoot {
         }
     }
 
+    /**
+     * Copies detached, like upload, so qs quits the moment the PNG is on disk
+     * instead of waiting on wl-copy, cliphist and a possible JPEG re-encode. The
+     * worker owns the result toast. A running `wl-paste --watch cliphist store`
+     * already records every wl-copy, so the manual store only runs when no such
+     * watcher exists; storing twice was the slow half of every copy.
+     */
     Process {
         id: copyProc
-        property string file: ""
-        property bool keep: true
         function run(f, keepFile) {
-            file = f;
-            keep = keepFile;
-            command = ["sh", "-c",
-                "exec 9>&-; wl-copy --type image/png < \"$1\"; "
-                + "if command -v cliphist >/dev/null 2>&1; then "
+            command = ["setsid", "-f", "sh", "-c",
+                "exec 9>&-; "
+                + "note() { command -v notify-send >/dev/null 2>&1 || return 0; "
+                + "if [ -n \"$4\" ]; then "
+                + "act=$(notify-send -a rishot -i \"$3\" -u \"$1\" -A \"open=Open\" \"$2\" \"$5\"); "
+                + "[ \"$act\" = open ] && xdg-open \"$4\"; "
+                + "else notify-send -a rishot -i \"$3\" -u \"$1\" \"$2\"; fi; }; "
+                + "if ! wl-copy --type image/png < \"$1\"; then "
+                + "[ \"$2\" = keep ] || rm -f \"$1\"; note critical 'Copy failed' \"$3\" '' ''; exit 1; fi; "
+                + "if command -v cliphist >/dev/null 2>&1 "
+                + "&& ! pgrep -u \"$(id -u)\" -f '[w]l-paste.*--watch.*cliphist' >/dev/null 2>&1; then "
                 + "if [ \"$(stat -c%s \"$1\")\" -ge 4900000 ]; then "
                 + "command -v magick >/dev/null 2>&1 && magick \"$1\" -quality 92 jpeg:- | cliphist store; "
                 + "else cliphist store < \"$1\"; fi; fi; "
-                + "[ \"$2\" = keep ] || rm -f \"$1\"",
-                "_", f, keep ? "keep" : "drop"];
+                + "if [ \"$2\" = keep ]; then note normal 'Screenshot copied' \"$3\" \"$1\" \"$4\"; "
+                + "else rm -f \"$1\"; note normal 'Copied to clipboard' \"$3\" '' ''; fi",
+                "_", f, keepFile ? "keep" : "drop", root.iconPath, root.pretty(f)];
             running = true;
         }
-        onExited: (code) => {
-            console.log("rishot: wl-copy exit " + code);
-            if (code !== 0) { root.finish("Copy failed", "", true, ""); return; }
-            if (keep) root.finish("Screenshot copied", root.pretty(file), false, file);
-            else root.finish("Copied to clipboard", "", false, "");
-        }
+        onExited: () => Qt.quit()
     }
 
     /**
@@ -799,8 +818,12 @@ ShellRoot {
 
     Component.onCompleted: {
         windowProvider.refresh();
-        if (root.captureBackend === "image") grabProc.start();
-        else kwinProbe.running = true;
+        if (root.captureBackend === "image") {
+            grabProc.start();
+        } else if (!(Quickshell.env("HYPRLAND_INSTANCE_SIGNATURE") || Quickshell.env("SWAYSOCK")
+                     || Quickshell.env("NIRI_SOCKET"))) {
+            kwinProbe.running = true;
+        }
     }
 
     Process {
@@ -838,14 +861,14 @@ ShellRoot {
             id: win
             required property var modelData
             screen: modelData
-            visible: !root.dialogMode
+            visible: !root.dialogMode && !root.leaving
                 && (root.captureBackend !== "image" || root.frozenSource !== "")
 
             anchors { top: true; left: true; right: true; bottom: true }
             color: "transparent"
             exclusionMode: ExclusionMode.Ignore
             WlrLayershell.layer: WlrLayer.Overlay
-            WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
+            WlrLayershell.keyboardFocus: ov.ready ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
             WlrLayershell.namespace: "rishot"
 
             readonly property string scrName: win.modelData.name
@@ -877,6 +900,11 @@ ShellRoot {
                     target: root
                     function onOpenPopoverChanged() { keyScope.reclaimFocus(); }
                     function onSettingsOpenChanged() { keyScope.reclaimFocus(); }
+                }
+
+                Connections {
+                    target: ov
+                    function onReadyChanged() { if (ov.ready) keyScope.reclaimFocus(); }
                 }
 
                 Keys.onEscapePressed: {
@@ -1059,7 +1087,7 @@ ShellRoot {
 
             Component.onCompleted: root.overlays.push(win)
 
-            function grabExport(path, cb) { ov.grabExport(path, cb); }
+            function grabExport(path, cb, onGrabbed) { ov.grabExport(path, cb, onGrabbed); }
         }
     }
 }

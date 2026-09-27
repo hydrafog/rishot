@@ -100,6 +100,12 @@ Item {
             captureSource: overlay.captureBackend !== "image" ? overlay.screenData : null
             live: false
             paintCursor: false
+            onHasContentChanged: {
+                if (hasContent && overlay.captureBackend !== "image") {
+                    capTimer.running = false;
+                    overlay.ready = true;
+                }
+            }
         }
 
         Image {
@@ -334,16 +340,16 @@ Item {
 
     Timer {
         id: capTimer
-        interval: 50
+        interval: 16
         repeat: true
-        running: overlay.captureBackend !== "image"
+        running: overlay.captureBackend !== "image" && !overlay.ready
         property int tries: 0
         onTriggered: {
             tries += 1;
             if (overlay.frozenReady) {
                 running = false;
                 overlay.ready = true;
-            } else if (tries > 60) {
+            } else if (tries > 180) {
                 running = false;
                 console.warn("rishot: screen capture timed out after 3s, no frame from compositor");
                 overlay.captureTimedOut();
@@ -358,14 +364,14 @@ Item {
         color: overlay.dimColor
         visible: overlay.ready && overlay.localSel === null
         opacity: overlay.ready ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+        Behavior on opacity { NumberAnimation { duration: 60; easing.type: Easing.OutCubic } }
     }
 
     Item {
         anchors.fill: parent
         visible: overlay.ready && overlay.localSel !== null
         opacity: overlay.ready ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+        Behavior on opacity { NumberAnimation { duration: 60; easing.type: Easing.OutCubic } }
         Rectangle {
             color: overlay.dimColor
             x: 0; y: 0; width: parent.width
@@ -509,16 +515,38 @@ Item {
         }
     }
 
-    function grabExport(path, cb) {
-        if (!overlay.localSel) { cb(false); return; }
+    /**
+     * onGrabbed fires as soon as the pixels are in memory, before the PNG encode.
+     * The caller uses it to unmap the overlay, and the encode is pushed one frame
+     * later so the compositor sees the surface go away instead of a frozen overlay
+     * sitting on screen for the whole saveToFile call.
+     */
+    function grabExport(path, cb, onGrabbed) {
+        if (!overlay.localSel) { if (cb) cb(false); return; }
         exportSrc.scheduleUpdate();
         var scheduled = exportClip.grabToImage(function (result) {
-            var ok = false;
-            try { ok = result ? result.saveToFile(path) : false; }
-            catch (e) { console.log("rishot: saveToFile failed: " + e); }
-            if (cb) cb(ok);
+            if (!result) { if (cb) cb(false); return; }
+            if (onGrabbed) onGrabbed();
+            deferredSave.queue(result, path, cb);
         });
         if (!scheduled && cb) cb(false);
+    }
+
+    Timer {
+        id: deferredSave
+        interval: 16
+        property var result: null
+        property string path: ""
+        property var cb: null
+        function queue(r, p, c) { result = r; path = p; cb = c; restart(); }
+        onTriggered: {
+            var r = result, p = path, c = cb;
+            result = null; cb = null;
+            var ok = false;
+            try { ok = r.saveToFile(p); }
+            catch (e) { console.log("rishot: saveToFile failed: " + e); }
+            if (c) c(ok);
+        }
     }
 
     MouseArea {
@@ -775,6 +803,12 @@ Item {
         Keys.onPressed: (e) => {
             if (e.key === Qt.Key_Return || e.key === Qt.Key_Enter) { overlay.textCommitted(); e.accepted = true; }
             else if (e.key === Qt.Key_Escape) { e.accepted = false; }
+        }
+    }
+
+    Component.onCompleted: {
+        if (overlay.captureBackend !== "image") {
+            frozenWlr.captureFrame();
         }
     }
 }

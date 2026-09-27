@@ -71,4 +71,8 @@ mkdir -p "$rundir" 2>/dev/null || rundir="/tmp"
 lock="$rundir/rishot.lock"
 exec 9>"$lock"
 flock -n 9 || { echo "rishot: already running" >&2; exit 0; }
+# Qt caches compiled QML here; a read-only install dir would otherwise force a
+# full reparse on every launch.
+export QML_DISK_CACHE_PATH="${QML_DISK_CACHE_PATH:-${XDG_CACHE_HOME:-$HOME/.cache}/rishot/qmlcache}"
+mkdir -p "$QML_DISK_CACHE_PATH" 2>/dev/null || true
 exec env RISHOT_MODE="$mode" qs -p "$dir"
