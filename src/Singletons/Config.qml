@@ -11,7 +11,7 @@ Singleton {
     property real zoomFactor: 2.0
     property bool copyToDisk: false
     property bool copyOnSave: false
-    property bool skipSaveDialog: false
+    property bool skipSaveDialog: true
     property string saveDir: ""
 
     /**

@@ -136,9 +136,8 @@ ShellRoot {
     property var hoverWindow: null
     property var windowRects: []
     property bool dialogMode: false
-    /** Set once a copy or upload has its pixels; unmaps every overlay for good. */
+    /** Set once a copy, save or upload has its pixels; unmaps every overlay for good. */
     property bool leaving: false
-    property string savedAuto: ""
 
     function textSize() { return activeWidth * 5 + 8; }
 
@@ -494,8 +493,7 @@ ShellRoot {
 
     /**
      * leaveEarly unmaps the overlays the moment the pixels are grabbed, for the
-     * actions that never return to the editor (copy, upload). Save keeps them
-     * mapped because a cancelled save dialog brings the editor back.
+     * actions that never return to the editor (copy, save, upload).
      */
     function grabTo(path, after, leaveEarly) {
         var w = anchorOverlay();
@@ -599,14 +597,12 @@ ShellRoot {
     }
 
     function doSave() {
+        if (phase !== "editing" || !globalSel) return;
         var auto = root.defaultPath();
         grabTo(auto, function (ok) {
-            if (!ok) { root.finish("Capture failed", "", true, ""); return; }
-            root.savedAuto = auto;
-            if (Config.skipSaveDialog) { root.afterSave(auto); return; }
-            root.dialogMode = true;
-            saveDialog.open();
-        });
+            if (ok) root.afterSave(auto);
+            else root.finish("Capture failed", "", true, "");
+        }, true);
     }
 
     /**
@@ -624,32 +620,6 @@ ShellRoot {
             if (ok) uploadProc.run(tmp);
             else root.finish("Capture failed", "", true, "");
         }, true);
-    }
-
-    Process {
-        id: saveDialog
-        stdout: StdioCollector { id: saveOut }
-        function open() {
-            command = ["kdialog", "--getsavefilename", root.savedAuto, "*.png"];
-            running = true;
-        }
-        onExited: (code) => {
-            var chosen = saveOut.text.trim();
-            console.log("rishot: kdialog exit " + code + " path=" + JSON.stringify(chosen));
-            if (code === 0 && chosen.length > 0) {
-                if (chosen !== root.savedAuto) copyFileProc.run(root.savedAuto, chosen);
-                else root.afterSave(root.savedAuto);
-            } else {
-                root.dialogMode = false;
-            }
-        }
-    }
-
-    Process {
-        id: copyFileProc
-        property string dst: ""
-        function run(src, d) { dst = d; command = ["cp", "--", src, d]; running = true; }
-        onExited: () => root.afterSave(dst)
     }
 
     /** Puts an already-saved file on the clipboard for the copy-on-save option. */
@@ -845,7 +815,7 @@ ShellRoot {
     Process {
         id: mkdirProc
         running: true
-        command: ["mkdir", "-p", root.shotsDir]
+        command: ["mkdir", "-p", root.effectiveSaveDir]
     }
 
     function toolbarFor(win) {
@@ -1047,6 +1017,7 @@ ShellRoot {
                 SettingsPanel {
                     id: hotkeyPopover
                     visible: toolbar.visible && root.settingsOpen
+                    effectiveSaveDir: root.pretty(root.effectiveSaveDir)
                     luaPath: root.keybindFile
                     x: Math.max(8, Math.min(toolbar.x + toolbar.gearCenterX - width / 2,
                                             win.width - width - 8))

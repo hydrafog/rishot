@@ -8,6 +8,7 @@ import "Singletons"
 Item {
     id: panel
     property string luaPath: ""
+    property string effectiveSaveDir: ""
     property string hotkey: "unset"
     property bool listening: false
 
@@ -379,22 +380,16 @@ Item {
 
             RowLayout {
                 Layout.fillWidth: true
-                Label { text: "Save without dialog" }
-                Item { Layout.fillWidth: true }
-                Toggle {
-                    checked: Config.skipSaveDialog
-                    onToggled: (v) => { Config.skipSaveDialog = v; Config.save(); }
-                }
+                Label { text: "Save folder" }
             }
 
             RowLayout {
-                visible: Config.skipSaveDialog
                 Layout.fillWidth: true
                 spacing: 10
 
                 Text {
                     Layout.fillWidth: true
-                    text: Config.saveDir !== "" ? Config.saveDir : "~/Pictures/Screenshots"
+                    text: panel.effectiveSaveDir !== "" ? panel.effectiveSaveDir : (Config.saveDir !== "" ? Config.saveDir : "~/Pictures/Screenshots")
                     color: Theme.dimIcon
                     font.family: Theme.monoFamily
                     font.pixelSize: 11
